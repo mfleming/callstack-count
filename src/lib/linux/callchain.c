@@ -85,6 +85,7 @@ struct callchain_param callchain_param = {
 #define WARN_ONCE(x, ...)
 #define map_symbol__exit(x)
 #define ceil(x) x
+#define map__dso(x) ((struct dso *)x)
 
 /*
  * Are there any events usind DWARF callchains?

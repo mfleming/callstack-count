@@ -7,7 +7,7 @@
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 
 struct record records[] = {
-#include "gen.d"
+#include "gen2.d"
 };
 
 void insert(struct callstack_tree *tree, struct callstack_entry *stack)
@@ -49,12 +49,24 @@ struct callstack_ops *cs_ops = &linux_ops;
 
 int main(int argc, char *argv[])
 {
+    struct stats stats = {0};
     struct record *r = records;
-    for (int i = 0; i < ARRAY_SIZE(records); i++) {
-        r = &records[i];
 
-        struct callstack_tree *tree = cs_ops->get(r->id);
-        tree->insert(tree, r->stack);
+    for (int j = 0; j < 1; j++) {
+        for (int i = 0; i < ARRAY_SIZE(records); i++) {
+            r = &records[i];
+
+            struct callstack_tree *tree = cs_ops->get(r->id);
+            tree->insert(tree, r->stack);
+            stats.num_records += 1;
+        }
     }
+
+    cs_ops->stats(&stats);
+
+    printf("Processed %lu records\n", stats.num_records);
+    printf("Created %lu trees\n", stats.num_trees);
+    printf("Average 100%% matches: %0.2f%%\n", stats.avg_full_matches);
+
     return 0;
 }
