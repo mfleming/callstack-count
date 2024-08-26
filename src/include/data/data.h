@@ -1,3 +1,8 @@
+#ifndef __DATA_H__
+#define __DATA_H__
+
+#include "callstack.h"
+
 #define MAX_STACK_ENTRIES 256
 
 struct record {
@@ -5,6 +10,5 @@ struct record {
 	struct callstack_entry stack[MAX_STACK_ENTRIES];
 };
 
-struct record records[] = {
-#include "gen.c"
-};
+
+#endif /* __DATA_H__ */
