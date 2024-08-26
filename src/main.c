@@ -1,13 +1,13 @@
+#include <linux/rbtree.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "map_symbol.h"
 
 #include "callstack.h"
 #include "data/data.h"
 
-#define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
-
 struct record records[] = {
-#include "gen2.d"
+#include "gen.d"
 };
 
 void insert(struct callstack_tree *tree, struct callstack_entry *stack)
@@ -45,24 +45,150 @@ struct callstack_ops cs = {
 };
 
 // struct callstack_ops *cs_ops = &cs;
-struct callstack_ops *cs_ops = &linux_ops;
+// struct callstack_ops *cs_ops = &linux_ops;
+struct callstack_ops *cs_ops = &art_ops;
+
+struct map_tree {
+    struct rb_node node;
+    unsigned long id;
+    struct map_symbol *ms;
+};
+
+struct map_trees {
+    struct rb_root_cached node;
+};
+static struct map_trees map_trees;
+
+static struct map_symbol *last_ms = NULL;
+
+struct map_symbol *get_map(unsigned long id) {
+    struct rb_node **p = &map_trees.node.rb_root.rb_node;
+    struct rb_node *parent = NULL;
+    struct map_tree *mt;
+    bool leftmost = true;
+    struct map_symbol *ms = NULL;
+
+    if (last_ms && last_ms->map == (void *)id) {
+        return last_ms;
+    }
+
+    while (*p != NULL) {
+        parent = *p;
+        mt = rb_entry(parent, struct map_tree, node);
+        int cmp = mt->id - id;
+        if (cmp < 0)
+            p = &(*p)->rb_left;
+        else if (cmp > 0) {
+            p = &(*p)->rb_right;
+            leftmost = false;
+        } else {
+            ms = mt->ms;
+            goto out;
+        }
+    }
+
+    ms = calloc(1, sizeof(struct map_symbol));
+    if (!ms) {
+        die();
+    }
+    // Append the IP to the callchain
+    ms->map = (void *)id;
+
+    mt = calloc(1, sizeof(struct map_tree));
+    if (!mt) {
+        die();
+    }
+
+    mt->id = id;
+    mt->ms = ms;
+    rb_link_node(&mt->node, parent, p);
+    rb_insert_color_cached(&mt->node, &map_trees.node, leftmost);
+
+out:
+    last_ms = ms;
+    return ms;
+}
+
+struct tree {
+    unsigned long id;
+    struct callstack_tree *cs_tree;
+    struct rb_node node;
+};
+
+struct trees {
+    struct rb_root_cached entries;
+};
+
+struct trees trees;
+
+/* Initialise various caches */
+static inline void init_caches() {
+    trees.entries = RB_ROOT_CACHED;
+    map_trees.node = RB_ROOT_CACHED;
+}
+
+static struct callstack_tree *get_tree(unsigned long id) {
+    struct tree *cursor;
+    struct callstack_tree *t = NULL;
+    struct rb_node **p = &trees.entries.rb_root.rb_node;
+    struct rb_node *parent = NULL;
+    struct tree *tree;
+    bool leftmost = true;
+
+    while (*p != NULL) {
+        parent = *p;
+        tree = rb_entry(parent, struct tree, node);
+
+        if (tree->id < id)
+            p = &(*p)->rb_left;
+        else if (tree->id > id) {
+            p = &(*p)->rb_right;
+            leftmost = false;
+        } else
+            return tree->cs_tree;
+    }
+
+    t = cs_ops->new();
+
+    cursor = calloc(1, sizeof(*cursor));
+    if (!cursor)
+        die();
+
+    cursor->cs_tree = t;
+    cursor->id = id;
+    rb_link_node(&cursor->node, parent, p);
+    rb_insert_color_cached(&cursor->node, &trees.entries, leftmost);
+    return cursor->cs_tree;
+}
 
 int main(int argc, char *argv[])
 {
     struct stats stats = {0};
     struct record *r = records;
 
-    for (int j = 0; j < 1; j++) {
+    init_caches();
+
+    for (int j = 0; j < 100; j++) {
         for (int i = 0; i < ARRAY_SIZE(records); i++) {
             r = &records[i];
 
-            struct callstack_tree *tree = cs_ops->get(r->id);
+            struct callstack_tree *tree = get_tree(r->id);
             tree->insert(tree, r->stack);
             stats.num_records += 1;
         }
     }
 
-    cs_ops->stats(&stats);
+    // Walk the rbtree and count the number of entries
+    struct rb_root *root = &trees.entries.rb_root;
+    struct rb_node *tree_node = rb_first(root);
+    struct tree *tree;
+
+    while (tree_node) {
+        tree = rb_entry(tree_node, struct tree, node);
+        cs_ops->stats(tree->cs_tree, &stats);
+        stats.num_trees++;
+        tree_node = rb_next(tree_node);
+    }
 
     printf("Processed %lu records\n", stats.num_records);
     printf("Created %lu trees\n", stats.num_trees);

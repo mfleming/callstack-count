@@ -6,7 +6,7 @@ CFLAGS:=-Wall -Werror -g2 -O0
 
 all: main
 
-main: $(SRCDIR)/*.c $(SRCDIR)/lib/linux/*.c
+main: $(SRCDIR)/*.c $(SRCDIR)/lib/linux/*.c $(SRCDIR)/lib/art/*.c
 	$(CC) -lm $(CFLAGS) -I $(HDRDIR) -I $(ARCHDIR) -I $(UAPIDIR) $^ -o $@
 
 clean:

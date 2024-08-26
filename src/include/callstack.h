@@ -51,6 +51,12 @@ struct callstack_ops {
     struct callstack_tree *(*get)(unsigned long id);
 
     /*
+     * Allocate a new callstack_tree and fill out any backend-specific
+     * data required in the ->priv field.
+     */
+    struct callstack_tree *(*new)(void);
+
+    /*
      * Free all resources associated with the callstack ops.
      */
     void (*put)(struct callstack_tree *tree);
@@ -58,13 +64,16 @@ struct callstack_ops {
     /*
      * Return statistics about the trees.
      */
-    void (*stats)(struct stats *stats);
+    void (*stats)(struct callstack_tree *tree, struct stats *stats);
 };
 
 extern struct callstack_ops *cs_ops;
-
 extern struct callstack_ops linux_ops;
+extern struct callstack_ops art_ops;
 
 extern void die(void);
+
+// TODO - de-dup cursor building code
+extern struct map_symbol *get_map(unsigned long map);
 
 #endif /* __CALLSTACK_H__ */
