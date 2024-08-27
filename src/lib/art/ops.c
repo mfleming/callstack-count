@@ -1,11 +1,23 @@
 /*
  * Implementation of Adaptive Radix Trees.
  *
- * Each node in the tree can be one of several types.
- * 
- * In addition, we use two optimisations: lazy expansion and path
- * compression. 
+ * TODO: Each node in the tree can be one of several types.
+ * In addition, we use two optimisations: lazy expansion and path compression.
+ *
+ * For the purpose of storing Linux callstacks, keys are a sequence of
+ * instruction ips and map pointers (both 8-bytes), and the sequence can be
+ * arbitrary long.
+ *
+ * Instead of working with 8 bytes at a time we treat the key as a sequence of
+ * bytes. This is inefficient but significantly simplifies the implementation.
+ *
+ * Note that node removal is not implemented because perf does not require it.
+ *
+ * TODO: Right now we use a static span of 256 children, but picking the span
+ * dynamically based on the number of children would be more efficient and is
+ * exactly what the paper was written for.
  */
+
 #include <stdlib.h>
 #include "callchain.h"
 #include "callstack.h"
@@ -21,7 +33,8 @@
  * 
  * Perf supports all kinds of extra bits of info to figure out if two samples
  * are the same or not, such as the branch count, cycles count, etc. We do not
- * support that. Instead, we just use the ip and map.
+ * support that. Instead, we just use the ip and map and feed a stream of bytes
+ * into the radix tree.
  */
 struct stream {
     u8 *data;
@@ -33,12 +46,22 @@ struct stream {
 
 static struct stream _stream;
 
+static inline void stream_init(struct stream *stream, u8 *data)
+{
+    stream->pos = 0;
+    stream->data = data;
+}
+
 static inline bool stream_end(struct stream *stream)
 {
     u8 *ptr = &stream->data[stream->pos];
     return ptr >= stream->end;
 }
 
+/*
+ * Callers must call stream_end() before this function to check whether
+ * there is any data left to consume.
+ */
 static inline u8 stream_next(struct stream *stream)
 {
     return stream->data[stream->pos++];
@@ -65,12 +88,18 @@ art_tree_stats(struct callstack_tree *cs_tree, struct stats *stats)
 /*
  * A radix tree node that stores 256 children.
  *
- * TODO: The paper also includes 4, 16, and 48 node types but working
- * with the keys becomes more complicated. With the 256 node type we
- * can simply use the key as an index into the children array.
+ * With the 256 node type we can simply use the partial key as an index into
+ * the children array.
+ *
+ * TODO: The paper also includes 4, 16, and 48 node types but working with
+ * the keys becomes more complicated.
  */
 struct radix_tree_node {
+    /* Pointers to children nodes */
     unsigned long children[256];
+
+    /* How many IP-map pairs matched this path */
+    unsigned long count;
 };
 
 struct art_priv {
@@ -95,25 +124,20 @@ static inline struct radix_tree_node *alloc_node()
 
 static void insert(struct radix_tree_node *root, struct stream *stream)
 {
-    struct radix_tree_node *node;
-    u8 key;
+    struct radix_tree_node *node = root;
 
-    if (stream_end(stream)) {
-        return;
+    while (!stream_end(stream)) {
+        u8 key = stream_next(stream);
+
+        if (!node->children[key]) {
+            node->children[key] = (unsigned long)alloc_node();
+        }
+
+        node = (struct radix_tree_node *)node->children[key];
     }
 
-    key = stream_next(stream);
-
-    // Can this fail?
-    if (root->children[key]) {
-        struct radix_tree_node *node = (struct radix_tree_node *)root->children[key];
-        insert(node, stream);
-        return;
-    } else {
-        node = alloc_node();
-        root->children[key] = (unsigned long)node;
-        insert(node, stream);
-    }
+    /* Now we're at the final node and we need to bump the count. */
+    node->count += 1;
 }
 
 static void art_tree_insert(struct callstack_tree *tree,
@@ -134,8 +158,8 @@ static void art_tree_insert(struct callstack_tree *tree,
             break;
         }
     }
-    stream->pos = 0;
-    stream->data = (u8 *)stack;
+
+    stream_init(stream, (u8 *)stack);
     insert(&priv->root, stream);
 }
 
