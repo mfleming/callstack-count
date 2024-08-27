@@ -11,6 +11,39 @@
 #include "callstack.h"
 #include "data/data.h"
 
+/*
+ * Input stream of bytes.
+ *
+ * Each entry is a pair of (map, ip) where map is the address of the
+ * map and ip is the instruction pointer.
+ * 
+ * Streams return bytes at a time.
+ * 
+ * Perf supports all kinds of extra bits of info to figure out if two samples
+ * are the same or not, such as the branch count, cycles count, etc. We do not
+ * support that. Instead, we just use the ip and map.
+ */
+struct stream {
+    u8 *data;
+    /* Pointer to the end of the data. See stream_end() */
+    u8 *end;
+    /* The current position into data, in 1-byte increments */
+    unsigned int pos;
+};
+
+static struct stream _stream;
+
+static inline bool stream_end(struct stream *stream)
+{
+    u8 *ptr = &stream->data[stream->pos];
+    return ptr >= stream->end;
+}
+
+static inline u8 stream_next(struct stream *stream)
+{
+    return stream->data[stream->pos++];
+}
+
 static struct callstack_tree *art_tree_get(unsigned long id)
 {
     return NULL;
@@ -29,16 +62,15 @@ art_tree_stats(struct callstack_tree *cs_tree, struct stats *stats)
 #define LEAF_NODE  (1<< 0)
 #define INNER_NODE (1<<1)
 
+/*
+ * A radix tree node that stores 256 children.
+ *
+ * TODO: The paper also includes 4, 16, and 48 node types but working
+ * with the keys becomes more complicated. With the 256 node type we
+ * can simply use the key as an index into the children array.
+ */
 struct radix_tree_node {
-    unsigned int node_type;
-    unsigned int num_keys;
-
-    /*
-     * If node_type is LEAF this array holds values
-     * If node_type is INNER this holds pointers to child nodes
-     */
-    unsigned long children[8];
-    unsigned long keys[8];
+    unsigned long children[256];
 };
 
 struct art_priv {
@@ -57,82 +89,54 @@ static inline struct radix_tree_node *alloc_node()
     return node;
 }
 
-static void insert(struct radix_tree_node *root, struct callchain_cursor *cursor)
+// static void mjf(void) {
+    // printf("Here\n");
+// }
+
+static void insert(struct radix_tree_node *root, struct stream *stream)
 {
-    struct callchain_cursor_node *cnode;
     struct radix_tree_node *node;
+    u8 key;
 
-	cnode = callchain_cursor_current(cursor);
-    if (!cnode)
+    if (stream_end(stream)) {
         return;
+    }
 
-    // Does this key match?
-    if (!root->num_keys) {
-        // No children, insert a new node
+    key = stream_next(stream);
+
+    // Can this fail?
+    if (root->children[key]) {
+        struct radix_tree_node *node = (struct radix_tree_node *)root->children[key];
+        insert(node, stream);
+        return;
+    } else {
         node = alloc_node();
-        root->keys[0] = cnode->ip;
-        root->children[0] = (unsigned long)node;
-        root->num_keys++;
-
-        callchain_cursor_advance(cursor);
-        insert(node, cursor);
-        return;
+        root->children[key] = (unsigned long)node;
+        insert(node, stream);
     }
-
-    // Iterate over all keys, looking for a match
-    for (int i = 0; i < root->num_keys; i++) {
-        // TODO use match_chain_dso_addresses()
-        if (cnode->ip != root->keys[i])
-            continue;
-        
-        // Match
-        node = (struct radix_tree_node *)root->children[i];
-        callchain_cursor_advance(cursor);
-        insert(node, cursor);
-        return;
-    }
-
-    // We searched all keys and didn't find a match. Insert new one.
-    assert(root->num_keys != sizeof(root->keys));
-
-    root->keys[root->num_keys] = cnode->ip;
-    root->children[root->num_keys] = (unsigned long)alloc_node();
-    root->num_keys++;
 }
 
 static void art_tree_insert(struct callstack_tree *tree,
                             struct callstack_entry *stack)
 {
-    struct callchain_cursor *cursor = get_tls_callchain_cursor();
-	struct callchain_cursor_node *cnode;
     struct art_priv *priv = tree->priv;
+    struct stream *stream = &_stream;
 
-	cursor->nr = 0;
-	cursor->last = &cursor->first;
-
-    // Build a callchain cursor
+    /*
+     * We don't need to build a cursor (unlike the linux backend) because
+     * we don't need to do any manipuation of the callchain nodes. We simply
+     * feed the bytes into the ART.
+     */
     for (int i = 0; i < MAX_STACK_ENTRIES; i++) {
         struct callstack_entry *entry = &stack[i];
         if (!entry->ip) {
+            stream->end = (u8 *)entry;
             break;
         }
-
-        struct map_symbol *ms = get_map(entry->map);
-        callchain_cursor_append(cursor, entry->ip, ms, false, NULL, 0, 0, 0, NULL);
     }
-
-    if (!cursor->nr) {
-        return;
-    }
-
-    callchain_cursor_commit(cursor);
-
-    // Necessary?
-	cnode = callchain_cursor_current(cursor);
-	if (!cnode)
-		return;
-
-    insert(&priv->root, cursor);
+    stream->pos = 0;
+    stream->data = (u8 *)stack;
+    insert(&priv->root, stream);
 }
 
 static struct callstack_tree *art_tree_new()

@@ -7,7 +7,21 @@
 #include "data/data.h"
 
 struct record records[] = {
-#include "gen.d"
+#include "gen2.d"
+};
+
+struct record simple_records[] = {
+    {0x1111,
+        {
+                {0xffff2222, 0x333},
+                {0x0, 0x0},
+        }},
+    {0x1111,
+        {
+                {0xffff2222, 0x333},
+                {0xffff3333, 0x444},
+                {0x0, 0x0},
+        }}
 };
 
 void insert(struct callstack_tree *tree, struct callstack_entry *stack)
@@ -168,6 +182,7 @@ int main(int argc, char *argv[])
 
     init_caches();
 
+    // Main loop
     for (int j = 0; j < 100; j++) {
         for (int i = 0; i < ARRAY_SIZE(records); i++) {
             r = &records[i];
@@ -190,9 +205,22 @@ int main(int argc, char *argv[])
         tree_node = rb_next(tree_node);
     }
 
+    struct rb_root *map_root = &map_trees.node.rb_root;
+    struct rb_node *map_node = rb_first(map_root);
+    // struct map_tree *map_tree;
+
+    unsigned long num_maps = 0;
+    while (map_node) {
+        // map_tree = rb_entry(map_node, struct map_tree, node);
+        // printf("map: 0x%016lx\n", map_tree->id);
+        num_maps++;
+        map_node = rb_next(map_node);
+    }
+
     printf("Processed %lu records\n", stats.num_records);
     printf("Created %lu trees\n", stats.num_trees);
     printf("Average 100%% matches: %0.2f%%\n", stats.avg_full_matches);
+    printf("Number of maps: %lu\n", num_maps);
 
     return 0;
 }
