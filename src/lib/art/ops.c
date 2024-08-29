@@ -22,7 +22,9 @@
  * each node.
  */
 
+#include <linux/kernel.h>
 #include <stdlib.h>
+#include <string.h>
 #include "callchain.h"
 #include "callstack.h"
 #include "data/data.h"
@@ -80,6 +82,16 @@ static inline bool stream_end(struct stream *stream)
     return ptr >= stream->end;
 }
 
+static inline void stream_advance(struct stream *stream, unsigned int n)
+{
+    stream->pos += n;
+}
+
+static inline unsigned int stream_remaining(struct stream *stream)
+{
+    return stream->end - &stream->data[stream->pos];
+}
+
 /*
  * Callers must call stream_end() before this function to check whether
  * there is any data left to consume.
@@ -116,12 +128,22 @@ art_tree_stats(struct callstack_tree *cs_tree, struct stats *stats)
  * TODO: The paper also includes 4, 16, and 48 node types but working with
  * the keys becomes more complicated.
  */
+
+#define NODE_FLAGS_LEAF  (1 << 0)
+#define NODE_FLAGS_INNER (1 << 1)
 struct radix_tree_node {
     /* Pointers to children nodes */
     unsigned long children[256];
 
     /* How many IP-map pairs matched this path */
     unsigned long count;
+
+    /* Only used if we're a leaf node. See lazy expansion in insert() */
+    u8 *key;
+    unsigned int key_len;
+
+    /* See NODE_FLAGS_* */
+    unsigned int flags;
 };
 
 struct art_priv {
@@ -147,17 +169,66 @@ static inline struct radix_tree_node *alloc_node()
 static void insert(struct radix_tree_node *root, struct stream *stream)
 {
     struct radix_tree_node *node = root;
+    struct radix_tree_node *prev = NULL;
 
     while (!stream_end(stream)) {
         u8 key = stream_next(stream);
 
-        if (!node->children[key]) {
-            node->children[key] = (unsigned long)alloc_node();
+        prev = node;
+        node = (struct radix_tree_node *)node->children[key];
+        if (!node) {
+            /*
+             * Lazy expansion: allocate a new leaf node and store the rest
+             * of the key in it.
+             */
+            unsigned int remaining = stream_remaining(stream);
+
+            node = alloc_node();
+            prev->children[key] = (unsigned long)node;
+            node->flags = LEAF_NODE;
+            node->key_len = remaining;
+            node->key = malloc(remaining);
+            if (!node->key)
+                die();
+
+            /* Copy the rest of stream */
+            memcpy(node->key, &stream->data[stream->pos], remaining);
+            stream_advance(stream, remaining);
+            goto out;
         }
 
-        node = (struct radix_tree_node *)node->children[key];
+        if (node->flags & NODE_FLAGS_LEAF) {
+            /*
+             * Compare the rest of the key. If it matches we're done.
+             */
+            unsigned int remaining = stream_remaining(stream);
+            unsigned int min_bytes = min(remaining, node->key_len);
+            struct radix_tree_node *inner;
+
+            /* Be optimistic. Hope for whole key match */
+            if (!memcmp(node->key, &stream->data[stream->pos], min_bytes)) {
+                stream_advance(stream, min_bytes);
+                goto out;
+            }
+
+            /*
+             * Mismatch. Insert a new inner node with just the next partial key.
+             */
+            inner = alloc_node();
+            prev->children[key] = (unsigned long)inner;
+            inner->flags = INNER_NODE;
+            inner->count = node->count;
+            inner->children[node->key[0]] = (unsigned long)node;
+            memmove(&node->key[1], &node->key[2], node->key_len - 1);
+            node->key_len -= 1;
+
+            node = inner;
+        } else {
+            assert(node->flags & NODE_FLAGS_INNER);
+        }
     }
 
+out:
     /* Now we're at the final node and we need to bump the count. */
     node->count += 1;
 }

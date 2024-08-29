@@ -1,6 +1,7 @@
 #include <linux/rbtree.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "map_symbol.h"
 
 #include "callstack.h"
@@ -179,6 +180,20 @@ int main(int argc, char *argv[])
 {
     struct stats stats = {0};
     struct record *r = records;
+
+    if (argc < 2) {
+        fprintf(stderr, "Usage: %s <linux|art>\n", argv[0]);
+        exit(EXIT_FAILURE);
+    }
+
+    if (!strcmp(argv[1], "linux")) {
+        cs_ops = &linux_ops;
+    } else if (!strcmp(argv[1], "art")) {
+        cs_ops = &art_ops;
+    } else {
+        fprintf(stderr, "Invalid argument: %s\n", argv[1]);
+        exit(EXIT_FAILURE);
+    }
 
     init_caches();
 
