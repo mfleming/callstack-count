@@ -1,8 +1,8 @@
 /*
  * Implementation of Adaptive Radix Trees.
  *
- * TODO: Each node in the tree can be one of several types.
- * In addition, we use two optimisations: lazy expansion and path compression.
+ * TODO: In addition, we use two optimisations: lazy expansion and path
+ * compression.
  *
  * For the purpose of storing Linux callstacks, keys are a sequence of
  * instruction ips and map pointers (both 8-bytes), and the sequence can be
@@ -12,10 +12,6 @@
  * bytes. This is inefficient but significantly simplifies the implementation.
  *
  * Note that node removal is not implemented because perf does not require it.
- *
- * TODO: Right now we use a static span of 256 children, but picking the span
- * dynamically based on the number of children would be more efficient and is
- * exactly what the paper was written for.
  *
  * Lastly, since the whole purpose of storing callstacks in the ART is to count
  * the number of times a callstack is seen from samples, we store a count in
@@ -116,25 +112,16 @@ art_tree_stats(struct callstack_tree *cs_tree, struct stats *stats)
 {
 }
 
-#define LEAF_NODE  (1<< 0)
-#define INNER_NODE (1<<1)
+#define NODE_FLAGS_LEAF      (1 << 0)
+#define NODE_FLAGS_INNER_4   (1 << 1)
+#define NODE_FLAGS_INNER_16  (1 << 2)
+#define NODE_FLAGS_INNER_48  (1 << 3)
+#define NODE_FLAGS_INNER_256 (1 << 4)
 
 /*
- * A radix tree node that stores 256 children.
- *
- * With the 256 node type we can simply use the partial key as an index into
- * the children array.
- *
- * TODO: The paper also includes 4, 16, and 48 node types but working with
- * the keys becomes more complicated.
+ * A radix tree node.
  */
-
-#define NODE_FLAGS_LEAF  (1 << 0)
-#define NODE_FLAGS_INNER (1 << 1)
 struct radix_tree_node {
-    /* Pointers to children nodes */
-    unsigned long children[256];
-
     /* How many IP-map pairs matched this path */
     unsigned long count;
 
@@ -144,6 +131,31 @@ struct radix_tree_node {
 
     /* See NODE_FLAGS_* */
     unsigned int flags;
+
+    /*
+     * Array of keys and pointers.
+     *
+     * If the flags field is NODE_FLAGS_LEAF, then this is a leaf node
+     * and the children array is unused.
+     *
+     * If the flags field is NODE_FLAGS_INNER_4, then this is an inner
+     * node with 4 keys and 4 pointers to children. The keys are stored
+     * in the first 4 bytes of the data array and the pointers are stored
+     * in the next 4 bytes.
+     *
+     * If the flags field is NODE_FLAGS_INNER_16, then this is an inner
+     * node with 16 keys and 16 pointers to children. You can find the key
+     * efficiently with a binary search.
+     *
+     * If the flags field is NODE_FLAGS_INNER_48, then this is an inner
+     * node with 48 keys. The keys index a second array of pointers to
+     * children.
+     *
+     * If the flags field is NODE_FLAGS_INNER_256, then this is an inner
+     * node with 256 keys. The keys index directly into the children
+     * array.
+     */
+    unsigned long arr[0];
 };
 
 struct art_priv {
@@ -151,11 +163,34 @@ struct art_priv {
     struct radix_tree_node root;
 };
 
-static inline struct radix_tree_node *alloc_node()
+static inline struct radix_tree_node *alloc_node(unsigned int flags)
 {
     struct radix_tree_node *node;
+    unsigned int size;
 
-    node = calloc(1, sizeof(*node));
+    switch (flags) {
+    case NODE_FLAGS_LEAF:
+        size = sizeof(*node);
+        break;
+    case NODE_FLAGS_INNER_4:
+        /* 4 keys and 4 pointers */
+        size = sizeof(*node) + 4 * sizeof(u8) + 4 * sizeof(unsigned long);
+        break;
+    case NODE_FLAGS_INNER_16:
+        /* 16 keys and 16 pointers */
+        size = sizeof(*node) + 16 * sizeof(u8) + 16 * sizeof(unsigned long);
+        break;
+    case NODE_FLAGS_INNER_48:
+        size = sizeof(*node) + 48 * sizeof(unsigned long);
+        break;
+    case NODE_FLAGS_INNER_256:
+        size = sizeof(*node) + 256 * sizeof(unsigned long);
+        break;
+    default:
+        die();
+    }
+
+    node = calloc(1, size);
     if (!node)
         die();
 
@@ -175,7 +210,7 @@ static void insert(struct radix_tree_node *root, struct stream *stream)
         u8 key = stream_next(stream);
 
         prev = node;
-        node = (struct radix_tree_node *)node->children[key];
+        node = (struct radix_tree_node *)node->arr[key];
         if (!node) {
             /*
              * Lazy expansion: allocate a new leaf node and store the rest
@@ -183,9 +218,9 @@ static void insert(struct radix_tree_node *root, struct stream *stream)
              */
             unsigned int remaining = stream_remaining(stream);
 
-            node = alloc_node();
-            prev->children[key] = (unsigned long)node;
-            node->flags = LEAF_NODE;
+            node = alloc_node(NODE_FLAGS_INNER_256);
+            prev->arr[key] = (unsigned long)node;
+            node->flags = NODE_FLAGS_LEAF;
             node->key_len = remaining;
             node->key = malloc(remaining);
             if (!node->key)
@@ -214,17 +249,17 @@ static void insert(struct radix_tree_node *root, struct stream *stream)
             /*
              * Mismatch. Insert a new inner node with just the next partial key.
              */
-            inner = alloc_node();
-            prev->children[key] = (unsigned long)inner;
-            inner->flags = INNER_NODE;
+            inner = alloc_node(NODE_FLAGS_INNER_256);
+            prev->arr[key] = (unsigned long)inner;
+            inner->flags = NODE_FLAGS_INNER_256;
             inner->count = node->count;
-            inner->children[node->key[0]] = (unsigned long)node;
+            inner->arr[node->key[0]] = (unsigned long)node;
             memmove(&node->key[1], &node->key[2], node->key_len - 1);
             node->key_len -= 1;
 
             node = inner;
         } else {
-            assert(node->flags & NODE_FLAGS_INNER);
+            assert(node->flags & NODE_FLAGS_INNER_256);
         }
     }
 
