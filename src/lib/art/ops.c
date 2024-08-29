@@ -6,7 +6,7 @@
  *
  * For the purpose of storing Linux callstacks, keys are a sequence of
  * instruction ips and map pointers (both 8-bytes), and the sequence can be
- * arbitrary long.
+ * arbitrarily long.
  *
  * Instead of working with 8 bytes at a time we treat the key as a sequence of
  * bytes. This is inefficient but significantly simplifies the implementation.
@@ -16,6 +16,10 @@
  * TODO: Right now we use a static span of 256 children, but picking the span
  * dynamically based on the number of children would be more efficient and is
  * exactly what the paper was written for.
+ *
+ * Lastly, since the whole purpose of storing callstacks in the ART is to count
+ * the number of times a callstack is seen from samples, we store a count in
+ * each node.
  */
 
 #include <stdlib.h>
@@ -27,15 +31,33 @@
  * Input stream of bytes.
  *
  * Each entry is a pair of (map, ip) where map is the address of the
- * map and ip is the instruction pointer.
+ * map and ip is the instruction pointer. Streams return bytes at a time.
  * 
- * Streams return bytes at a time.
+ * Given the following ip/map pair (0x12345678, 0xdeadbeef), we can turn it into
+ * a stream of bytes like so:
  * 
+ *     { .ip = 0x12345678, .map = 0xdeadbeef }
+ *
+ *                      |
+ *                      v
+ *
+ * [0x12, 0x34, 0x56, 0x78, 0xde, 0xad, 0xbe, 0xef]
+ *
+ * And we feed this stream of bytes into the radix tree.
+ *
  * Perf supports all kinds of extra bits of info to figure out if two samples
  * are the same or not, such as the branch count, cycles count, etc. We do not
  * support that. Instead, we just use the ip and map and feed a stream of bytes
  * into the radix tree.
+ *
+ * We can reduce the number of nodes in the tree by being careful with the order
+ * we feed bytes into the tree. For example, there are fewer map objects than
+ * ip addresses, so we should feed the map object first. Similarly, we can
+ * feed the ip addresses big endian to take advance of the fact that there is
+ * less variability in the higher bits, e.g. 0xffff0000 and 0xffff5555 differ
+ * only in the lower 16 bits.
  */
+
 struct stream {
     u8 *data;
     /* Pointer to the end of the data. See stream_end() */
