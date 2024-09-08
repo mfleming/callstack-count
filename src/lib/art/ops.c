@@ -126,19 +126,18 @@ art_tree_stats(struct callstack_tree *cs_tree, struct stats *stats)
  * A radix tree node.
  */
 struct radix_tree_node {
-    /* How many IP-map pairs matched this path */
-    unsigned long count;
-
-    /* Only used if we're a leaf node. See lazy expansion in insert() */
-    u8 *key;
-    unsigned int key_len;
+    /* This is necessary for expanding nodes when looking at leaves during insert() */
+    u8 prefix[512];
+    unsigned int prefix_len;
 
     /* See NODE_FLAGS_* */
     unsigned int flags;
 
-    /* This is necessary for expanding nodes when looking at leaves during insert() */
-    u8 prefix[512];
-    unsigned int prefix_len;
+    /* How many IP-map pairs matched this path */
+    unsigned long count;
+
+    u8 *key;
+    unsigned long key_len;
 
     /*
      * Array of keys and pointers.
@@ -171,68 +170,53 @@ struct art_priv {
     struct radix_tree_node *root;
 };
 
-static inline struct radix_tree_node *alloc_node(unsigned int flags)
+static struct radix_tree_node *alloc_node(unsigned int flags)
 {
-    struct radix_tree_node *node;
-    unsigned int size = sizeof(*node);
-
-    node = calloc(1, size);
-    if (!node)
-        die();
+    struct radix_tree_node *node = NULL;
+    unsigned int obj_size = 0;
+    unsigned int key_size = 0;
+    unsigned int children_size = 0;
 
     switch (flags) {
     case NODE_FLAGS_LEAF:
+        obj_size = sizeof(struct radix_tree_node);
+        node = calloc(1, obj_size);
         break;
     case NODE_FLAGS_INNER_4:
-        /* 4 keys and 4 pointers */
-        node->key = calloc(1, 4 * sizeof(u8));
-        if (!node->key)
-            die();
-
-        node->arr = calloc(1, 4 * sizeof(unsigned long));
-        if (!node->arr)
-            die();
-
+        key_size = 4 * sizeof(u8);
+        children_size = 4 * sizeof(unsigned long);
+        obj_size = sizeof(struct radix_tree_node) + key_size + children_size;
+        node = calloc(1, obj_size);
+        node->key = (u8 *)((char *)node + sizeof(struct radix_tree_node));
+        node->arr = (unsigned long *)(node->key + key_size);
         break;
     case NODE_FLAGS_INNER_16:
-        /* 16 keys and 16 pointers */
-        node->key = calloc(1, 16 * sizeof(u8));
-        if (!node->key)
-            die();
-
-        node->arr = calloc(1, 16 * sizeof(unsigned long));
-        if (!node->arr)
-            die();
-
-         break;
-    case NODE_FLAGS_INNER_48:
-        /* 4 keys and 4 pointers */
-        node->key = calloc(1, 48 * sizeof(u8));
-        if (!node->key)
-            die();
-
-        node->arr = calloc(1, 48 * sizeof(unsigned long));
-        if (!node->arr)
-            die();
-
-         break;
+        key_size = 16 * sizeof(u8);
+        children_size = 16 * sizeof(unsigned long);
+        obj_size = sizeof(struct radix_tree_node) + key_size + children_size;
+        node = calloc(1, obj_size);
+        node->key = (u8 *)((char *)node + sizeof(struct radix_tree_node));
+        node->arr = (unsigned long *)(node->key + key_size);
+        break;
+        case NODE_FLAGS_INNER_48:
+        key_size = 48 * sizeof(u8);
+        children_size = 48 * sizeof(unsigned long);
+        obj_size = sizeof(struct radix_tree_node) + key_size + children_size;
+        node = calloc(1, obj_size);
+        node->key = (u8 *)((char *)node + sizeof(struct radix_tree_node));
+        node->arr = (unsigned long *)(node->key + key_size);
+        break;
     case NODE_FLAGS_INNER_256:
-        /* 4 keys and 4 pointers */
-        // node->key = calloc(1, 4 * sizeof(unsigned long));
-        // if (!node->key)
-            // die();
-
-        node->arr = calloc(1, 256 * sizeof(unsigned long));
-        if (!node->arr)
-            die();
-
-         break;
+        children_size = 256 * sizeof(unsigned long);
+        obj_size = sizeof(struct radix_tree_node) + children_size;
+        node = calloc(1, obj_size);
+        node->arr = (unsigned long *)((char *)node + sizeof(struct radix_tree_node));
+        break;
     default:
         die();
     }
 
     node->flags = flags;
-
     return node;
 }
 
@@ -245,9 +229,9 @@ static void free_node(struct radix_tree_node *node)
     case NODE_FLAGS_INNER_4:
     case NODE_FLAGS_INNER_16:
     case NODE_FLAGS_INNER_48:
-        free(node->key);
+        // free(node->key);
     case NODE_FLAGS_INNER_256:
-        free(node->arr);
+        // free(node->arr);
         break;
     default:
         die();
@@ -489,7 +473,7 @@ static void insert(struct radix_tree_node **_node, struct stream *stream,
 
     if (is_leaf(node)) {
         struct radix_tree_node *new_node = alloc_node(NODE_FLAGS_INNER_4);
-        unsigned int min_len = min(node->key_len, (unsigned int)stream_size(stream));
+        unsigned int min_len = min(node->key_len, stream_size(stream));
         int i;
 
         u8 *key2 = load_key(node); 
