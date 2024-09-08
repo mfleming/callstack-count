@@ -236,6 +236,26 @@ static inline struct radix_tree_node *alloc_node(unsigned int flags)
     return node;
 }
 
+static void free_node(struct radix_tree_node *node)
+{
+    switch (node->flags) {
+    case NODE_FLAGS_LEAF:
+        free(node->key);
+        break;
+    case NODE_FLAGS_INNER_4:
+    case NODE_FLAGS_INNER_16:
+    case NODE_FLAGS_INNER_48:
+        free(node->key);
+    case NODE_FLAGS_INNER_256:
+        free(node->arr);
+        break;
+    default:
+        die();
+    }
+
+    free(node);
+}
+
 /*
  * Have all the keys of node been assigned?
  *
@@ -473,28 +493,21 @@ static void insert(struct radix_tree_node **_node, struct stream *stream,
         int i;
 
         u8 *key2 = load_key(node); 
-        for (i = depth; i < min_len && key[i] == key2[i]; i++) {
-            assert(i < stream_size(stream));
-            assert((i - depth) < sizeof(new_node->prefix));
+        for (i = depth;
+             i < min_len && key[i] == key2[i] &&
+             (i - depth) < sizeof(new_node->prefix); i++) {
             new_node->prefix[i - depth] = key[i];
         }
 
         // If we've exhausted the stream then we've 100% matched
         // the leaf and don't need to do anything.
         if (i == stream_size(stream)) {
-            // leak
-            // free(new_node->arr);
-            // free(new_node->key);
-            // free(new_node);
+            free_node(new_node);
             return;
         }
 
         new_node->prefix_len = i - depth;
-        assert(new_node->prefix_len <= sizeof(new_node->prefix));
-
-
         depth = depth + new_node->prefix_len;
-        // assert (depth < node->key_len);
         add_child(new_node, key[depth], leaf);
 
         // Alternatively, if we've 100% matched the leaf node but
@@ -570,11 +583,12 @@ static void art_tree_insert(struct callstack_tree *tree,
     // Unroll the stream?!?!!?
     leaf = alloc_node(NODE_FLAGS_LEAF);
     key_len = n * sizeof(struct callstack_entry);
-    leaf->key = calloc(1, key_len);
-    if (!leaf->key)
-        die();
+    // leaf->key = calloc(1, key_len);
+    // if (!leaf->key)
+        // die();
 
-    memcpy(leaf->key, stream->data, key_len);
+    //memcpy(leaf->key, stream->data, key_len);
+    leaf->key = stream->data;
     leaf->key_len = key_len;
 
     insert(&priv->root, stream, leaf, 0);
