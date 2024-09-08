@@ -71,7 +71,8 @@ extern struct callstack_ops *cs_ops;
 extern struct callstack_ops linux_ops;
 extern struct callstack_ops art_ops;
 
-extern void die(void);
+extern void __die(const char *func_name, int lineno);
+#define die() __die(__func__, __LINE__)
 
 // TODO - de-dup cursor building code
 extern struct map_symbol *get_map(unsigned long map);

@@ -2,7 +2,7 @@ SRCDIR:=src
 HDRDIR:=src/include
 ARCHDIR:=src/arch/x86/include/
 UAPIDIR:=src/include/uapi
-CFLAGS:=-Wall -Werror -g2 -O0
+CFLAGS:=-Wall -Werror -g2 -ggdb -O0 -fsanitize=address
 
 all: main
 
