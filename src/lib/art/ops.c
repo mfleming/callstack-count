@@ -393,67 +393,42 @@ static unsigned int check_prefix(struct radix_tree_node *node,
     return i;
 }
 
-// Grow in-place.
-static void grow(struct radix_tree_node *node)
+/*
+ * Return the new, larger node.
+ */
+static struct radix_tree_node *
+grow(struct radix_tree_node **_node, struct radix_tree_node *node)
 {
-    u8 *new_keys;
-    unsigned long *new_children;
+    struct radix_tree_node *new_node = NULL;
 
     switch (node->flags) {
     case NODE_FLAGS_INNER_4:
         // Bump to NODE_FLAGS_INNER_16
-        new_keys = calloc(1, 16 * sizeof(u8));
-        if (!new_keys)
-            die();
-        new_children = calloc(1, 16 * sizeof(unsigned long));
-        if (!new_children)
-            die();
-
-        memcpy(new_keys, node->key, 4 * sizeof(u8));
-        memcpy(new_children, node->arr, 4 * sizeof(unsigned long));
-        free(node->key);
-        free(node->arr);
-        node->key = new_keys;
-        node->arr = new_children;
-        node->flags = NODE_FLAGS_INNER_16;
+        new_node = alloc_node(NODE_FLAGS_INNER_16);
+        memcpy(new_node->key, node->key, 4 * sizeof(u8));
+        memcpy(new_node->arr, node->arr, 4 * sizeof(unsigned long));
         break;
     case NODE_FLAGS_INNER_16:
         // Bump to NODE_FLAGS_INNER_48
-        new_keys = calloc(1, 48 * sizeof(u8));
-        if (!new_keys)
-            die();
-        new_children = calloc(1, 48 * sizeof(unsigned long));
-        if (!new_children)
-            die();
-
-        memcpy(new_keys, node->key, 16 * sizeof(u8));
-        memcpy(new_children, node->arr, 16 * sizeof(unsigned long));
-        free(node->key);
-        free(node->arr);
-        node->key = new_keys;
-        node->arr = new_children;
-        node->flags = NODE_FLAGS_INNER_48;
+        new_node = alloc_node(NODE_FLAGS_INNER_48);
+        memcpy(new_node->key, node->key, 16 * sizeof(u8));
+        memcpy(new_node->arr, node->arr, 16 * sizeof(unsigned long));
         break;
     case NODE_FLAGS_INNER_48:
         // Bump to NODE_FLAGS_INNER_256
-        new_keys = calloc(1, 256 * sizeof(u8));
-        if (!new_keys)
-            die();
-        new_children = calloc(1, 256 * sizeof(unsigned long));
-        if (!new_children)
-            die();
-
-        memcpy(new_keys, node->key, 48 * sizeof(u8));
-        memcpy(new_children, node->arr, 48 * sizeof(unsigned long));
-        free(node->key);
-        free(node->arr);
-        node->key = new_keys;
-        node->arr = new_children;
-        node->flags = NODE_FLAGS_INNER_256;
+        new_node = alloc_node(NODE_FLAGS_INNER_256);
+        for (int i = 0; i < node->key_len; i++) {
+            u8 key = node->key[i];
+            new_node->arr[key] = node->arr[i];
+        }
         break;
-      default:
+    default:
         die();
     }
+
+    *_node = new_node;
+    free_node(node);
+    return new_node;
 }
 
 /*
@@ -533,8 +508,9 @@ static void insert(struct radix_tree_node **_node, struct stream *stream,
         insert(next, stream, leaf, depth + 1);
     } else {
         // Add to inner node
-        if (is_full(node))
-            grow(node);
+        if (is_full(node)) {
+            node = grow(_node, node);
+        }
         add_child(node, key[depth], leaf);
     }
     /* Now we're at the final node and we need to bump the count. */
