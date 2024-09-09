@@ -509,7 +509,7 @@ create_child(struct callchain_node *parent, bool inherit_children)
 {
 	struct callchain_node *new;
 
-	new = zalloc(sizeof(*new));
+	new = ccalloc(1, sizeof(*new));
 	if (!new) {
 		perror("not enough memory to create child for code path tree");
 		return NULL;
@@ -560,7 +560,7 @@ fill_node(struct callchain_node *node, struct callchain_cursor *cursor)
 	while (cursor_node) {
 		struct callchain_list *call;
 
-		call = zalloc(sizeof(*call));
+		call = ccalloc(1, sizeof(*call));
 		if (!call) {
 			perror("not enough memory for the code path tree");
 			return -ENOMEM;
@@ -580,7 +580,7 @@ fill_node(struct callchain_node *node, struct callchain_cursor *cursor)
 				 * to imply it's "to" of a branch.
 				 */
 				if (!call->brtype_stat) {
-					call->brtype_stat = zalloc(sizeof(*call->brtype_stat));
+					call->brtype_stat = ccalloc(1, sizeof(*call->brtype_stat));
 					if (!call->brtype_stat) {
 						perror("not enough memory for the code path branch statistics");
 						zfree(&call->brtype_stat);
@@ -753,7 +753,7 @@ static enum match_result match_chain(struct callchain_cursor_node *node,
 			 * It's "to" of a branch
 			 */
 			if (!cnode->brtype_stat) {
-				cnode->brtype_stat = zalloc(sizeof(*cnode->brtype_stat));
+				cnode->brtype_stat = ccalloc(1, sizeof(*cnode->brtype_stat));
 				if (!cnode->brtype_stat) {
 					perror("not enough memory for the code path branch statistics");
 					return MATCH_ERROR;
@@ -1464,7 +1464,7 @@ struct callchain_cursor *get_tls_callchain_cursor(void)
 	pthread_once(&once_control, init_callchain_cursor_key);
 	cursor = pthread_getspecific(callchain_cursor);
 	if (!cursor) {
-		cursor = zalloc(sizeof(*cursor));
+		cursor = ccalloc(1, sizeof(*cursor));
 		if (!cursor)
 			pr_debug3("%s: not enough memory\n", __func__);
 		pthread_setspecific(callchain_cursor, cursor);

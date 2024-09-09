@@ -37,12 +37,12 @@ static void insert(struct callstack_tree *tree, struct callstack_entry *stack)
 static struct callstack_tree *linux_tree_new()
 {
    // printf("alloc\n");
-    struct callstack_tree *t = calloc(1, sizeof(struct callstack_tree));
+    struct callstack_tree *t = ccalloc(1, sizeof(struct callstack_tree));
     if (!t) {
         die();
     }
 
-    t->priv = calloc(1, sizeof(struct linux_priv));
+    t->priv = ccalloc(1, sizeof(struct linux_priv));
     if (!t->priv) {
         die();
     }
@@ -58,7 +58,7 @@ static struct callstack_tree *linux_tree_new()
 static void callstack_put(struct callstack_tree *tree)
 {
     // TODO remove from tree_list.
-    free(tree);
+    cfree(tree, false);
 }
 
 static void callstack_stats(struct callstack_tree *cs_tree, struct stats *stats)

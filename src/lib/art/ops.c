@@ -55,17 +55,19 @@
  * only in the lower 16 bits.
  */
 
+typedef u8 art_key_t;
+
 struct stream {
-    u8 *data;
+    art_key_t *data;
     /* Pointer to the end of the data. See stream_end() */
-    u8 *end;
+    art_key_t *end;
     /* The current position into data, in 1-byte increments */
     unsigned int pos;
 };
 
 static struct stream _stream;
 
-static inline void stream_init(struct stream *stream, u8 *data)
+static inline void stream_init(struct stream *stream, art_key_t *data)
 {
     stream->pos = 0;
     stream->data = data;
@@ -73,7 +75,7 @@ static inline void stream_init(struct stream *stream, u8 *data)
 
 static inline bool stream_end(struct stream *stream)
 {
-    u8 *ptr = &stream->data[stream->pos];
+    art_key_t *ptr = &stream->data[stream->pos];
     return ptr >= stream->end;
 }
 
@@ -96,9 +98,28 @@ static inline unsigned int stream_remaining(struct stream *stream)
  * Callers must call stream_end() before this function to check whether
  * there is any data left to consume.
  */
-static inline u8 stream_next(struct stream *stream)
+static inline art_key_t stream_next(struct stream *stream)
 {
     return stream->data[stream->pos++];
+}
+
+/*
+ * Level of indirection for reading from the input stream. Note
+ * that all accesses to a node's key go directly through ->key[].
+ */
+static inline art_key_t stream_get(struct stream *stream, unsigned int offset)
+{
+    #if 0
+    // Read backwards because Little Endian
+    int i = stream_size(stream) - offset - 1;
+    if (i < 0)
+        return stream->data[0]; // Empty
+
+    assert(offset < stream_size(stream));
+    return stream->data[i];
+    #else
+    return stream->data[offset];
+    #endif
 }
 
 static struct callstack_tree *art_tree_get(unsigned long id)
@@ -126,18 +147,18 @@ art_tree_stats(struct callstack_tree *cs_tree, struct stats *stats)
  * A radix tree node.
  */
 struct radix_tree_node {
-    /* This is necessary for expanding nodes when looking at leaves during insert() */
-    u8 prefix[512];
-    unsigned int prefix_len;
-
     /* See NODE_FLAGS_* */
     unsigned int flags;
+
+    /* This is necessary for expanding nodes when looking at leaves during insert() */
+    unsigned int prefix_len;
+    art_key_t prefix[32];
 
     /* How many IP-map pairs matched this path */
     unsigned long count;
 
-    u8 *key;
     unsigned long key_len;
+    art_key_t *key;
 
     /*
      * Array of keys and pointers.
@@ -170,50 +191,46 @@ struct art_priv {
     struct radix_tree_node *root;
 };
 
+static inline unsigned int node_size(unsigned int flags)
+{
+    switch (flags) {
+    case NODE_FLAGS_LEAF:
+        die();
+    case NODE_FLAGS_INNER_4:
+        return 4;
+    case NODE_FLAGS_INNER_16:
+        return 16;
+    case NODE_FLAGS_INNER_48:
+        return 48;
+    case NODE_FLAGS_INNER_256:
+        return 256;
+    default:
+        die();
+    }
+    return 0;
+}
+
 static struct radix_tree_node *alloc_node(unsigned int flags)
 {
     struct radix_tree_node *node = NULL;
-    unsigned int obj_size = 0;
-    unsigned int key_size = 0;
-    unsigned int children_size = 0;
+    unsigned int children_size;
+    unsigned int obj_size;
+    unsigned int key_size;
 
-    switch (flags) {
-    case NODE_FLAGS_LEAF:
+    if (flags & NODE_FLAGS_LEAF) {
+        /*
+         * Leaves are special and ->key and ->arr are set to the callstack_entry.
+         * See art_tree_insert().
+         */
         obj_size = sizeof(struct radix_tree_node);
         node = ccalloc(1, obj_size);
-        break;
-    case NODE_FLAGS_INNER_4:
-        key_size = 4 * sizeof(u8);
-        children_size = 4 * sizeof(unsigned long);
+    } else {
+        key_size = node_size(flags) * sizeof(art_key_t);
+        children_size = node_size(flags) * sizeof(unsigned long);
         obj_size = sizeof(struct radix_tree_node) + key_size + children_size;
         node = ccalloc(1, obj_size);
-        node->key = (u8 *)((char *)node + sizeof(struct radix_tree_node));
-        node->arr = (unsigned long *)(node->key + key_size);
-        break;
-    case NODE_FLAGS_INNER_16:
-        key_size = 16 * sizeof(u8);
-        children_size = 16 * sizeof(unsigned long);
-        obj_size = sizeof(struct radix_tree_node) + key_size + children_size;
-        node = ccalloc(1, obj_size);
-        node->key = (u8 *)((char *)node + sizeof(struct radix_tree_node));
-        node->arr = (unsigned long *)(node->key + key_size);
-        break;
-        case NODE_FLAGS_INNER_48:
-        key_size = 48 * sizeof(u8);
-        children_size = 48 * sizeof(unsigned long);
-        obj_size = sizeof(struct radix_tree_node) + key_size + children_size;
-        node = ccalloc(1, obj_size);
-        node->key = (u8 *)((char *)node + sizeof(struct radix_tree_node));
-        node->arr = (unsigned long *)(node->key + key_size);
-        break;
-    case NODE_FLAGS_INNER_256:
-        children_size = 256 * sizeof(unsigned long);
-        obj_size = sizeof(struct radix_tree_node) + children_size;
-        node = ccalloc(1, obj_size);
-        node->arr = (unsigned long *)((char *)node + sizeof(struct radix_tree_node));
-        break;
-    default:
-        die();
+        node->key = (art_key_t *)((char *)node + sizeof(struct radix_tree_node));
+        node->arr = (unsigned long *)((char *)node->key + key_size);
     }
 
     node->flags = flags;
@@ -229,15 +246,18 @@ static void free_node(struct radix_tree_node *node, bool leaf)
     case NODE_FLAGS_INNER_4:
     case NODE_FLAGS_INNER_16:
     case NODE_FLAGS_INNER_48:
-        // cfree(node->key);
     case NODE_FLAGS_INNER_256:
-        // cfree(node->arr);
         break;
     default:
         die();
     }
 
     cfree(node, leaf);
+}
+
+static inline bool is_leaf(struct radix_tree_node *node)
+{
+    return node->flags & NODE_FLAGS_LEAF;
 }
 
 /*
@@ -248,32 +268,15 @@ static void free_node(struct radix_tree_node *node, bool leaf)
  */
 static inline bool is_full(struct radix_tree_node *node)
 {
-    bool full = false;
-
-    switch (node->flags) {
-    case NODE_FLAGS_LEAF:
+    if (is_leaf(node)) {
         /*
          * Leaf nodes are always full and require callers to insert a new
          * node if expansion is needed.
          */
         return true;
-    case NODE_FLAGS_INNER_4:
-        return node->key_len == 4;
-    case NODE_FLAGS_INNER_16:
-        return node->key_len == 16;
-    case NODE_FLAGS_INNER_48:
-        return node->key_len == 48;
-    case NODE_FLAGS_INNER_256:
-        return node->key_len == 256;
-    default:
-        die();
     }
-    return full;
-}
 
-static inline bool is_leaf(struct radix_tree_node *node)
-{
-    return node->flags & NODE_FLAGS_LEAF;
+    return node->key_len == node_size(node->flags);
 }
 
 /*
@@ -282,41 +285,18 @@ static inline bool is_leaf(struct radix_tree_node *node)
  *
  * The lookup method varies based on the type of node.
  */
-struct radix_tree_node **find_child(struct radix_tree_node *node, u8 key)
+struct radix_tree_node **find_child(struct radix_tree_node *node, art_key_t key)
 {
+    unsigned int entries;
+
     if (!node)
-        goto out;
-
-    switch (node->flags) {
-    case NODE_FLAGS_INNER_4:
-        for (int i = 0; i < 4; i++) {
-            if (node->key[i] == key)
-                return (struct radix_tree_node **)&node->arr[i];
-        }
         return NULL;
 
-    case NODE_FLAGS_INNER_16:
-        for (int i = 0; i < 16; i++) {
-            if (node->key[i] == key)
-                return (struct radix_tree_node **)&node->arr[i];
-        }
-        return NULL;
-
-    case NODE_FLAGS_INNER_256:
-        return (struct radix_tree_node **)&node->arr[key];
-
-    case NODE_FLAGS_INNER_48:
-        for (int i = 0; i < 48; i++) {
-            if (node->key[i] == key)
-                return (struct radix_tree_node **)&node->arr[i];
-        }
-        return NULL;
-
-    default:
-        die();
+    entries = node_size(node->flags);
+    for (int i = 0; i < entries; i++) {
+        if (node->key[i] == key)
+            return (struct radix_tree_node **)&node->arr[i];
     }
-
-out:
     return NULL;
 }
 
@@ -332,41 +312,19 @@ static void replace(struct radix_tree_node **node, struct radix_tree_node *leaf)
     *node = leaf;
 }
 
-static u8 *load_key(struct radix_tree_node *node)
+static art_key_t *load_key(struct radix_tree_node *node)
 {
     return node->key;
 }
 
-static void add_child(struct radix_tree_node *node, u8 key,
+static void add_child(struct radix_tree_node *node, art_key_t key,
                       struct radix_tree_node *child)
 {
-    switch(node->flags) {
-    case NODE_FLAGS_INNER_4:
-        assert(node->key_len != 4); // Full
-        node->key_len += 1;
-        node->key[node->key_len - 1] = key;
-        node->arr[node->key_len - 1] = (unsigned long)child;
-        break;
-    case NODE_FLAGS_INNER_16:
-        assert(node->key_len != 16); // Full
-        node->key_len += 1;
-        node->key[node->key_len - 1] = key;
-        node->arr[node->key_len - 1] = (unsigned long)child;
-        break;
-    case NODE_FLAGS_INNER_48:
-        assert(node->key_len != 48); // Full
-        node->key_len += 1;
-        node->key[node->key_len - 1] = key;
-        node->arr[node->key_len - 1] = (unsigned long)child;
-        break;
-    case NODE_FLAGS_INNER_256:
-        assert(node->key_len != 256); // Full
-        node->key_len += 1;
-        node->arr[key] = (unsigned long)child;
-        break;
-     default:
-        die();
-    }
+    assert(!is_full(node));
+
+    node->key_len += 1;
+    node->key[node->key_len - 1] = key;
+    node->arr[node->key_len - 1] = (unsigned long)child;
 }
 
 /*
@@ -382,12 +340,11 @@ static unsigned int check_prefix(struct radix_tree_node *node,
 
     // assert(node->prefix_len > 0);
 
-    u8 *key = stream->data;
     unsigned int min_len = min(node->prefix_len, (unsigned int)stream_size(stream) - depth);
     int i;
 
     for (i = 0; i < min_len; i++) {
-        if (node->prefix[i] != key[depth + i])
+        if (node->prefix[i] != stream_get(stream, depth + i))
             break;
     }
     return i;
@@ -400,37 +357,92 @@ static struct radix_tree_node *
 grow(struct radix_tree_node **_node, struct radix_tree_node *node)
 {
     struct radix_tree_node *new_node = NULL;
+    unsigned int type = 0;
+    unsigned int entries;
 
     switch (node->flags) {
     case NODE_FLAGS_INNER_4:
         // Bump to NODE_FLAGS_INNER_16
-        new_node = alloc_node(NODE_FLAGS_INNER_16);
-        memcpy(new_node->key, node->key, 4 * sizeof(u8));
-        memcpy(new_node->arr, node->arr, 4 * sizeof(unsigned long));
+        type = NODE_FLAGS_INNER_16;
         break;
     case NODE_FLAGS_INNER_16:
         // Bump to NODE_FLAGS_INNER_48
-        new_node = alloc_node(NODE_FLAGS_INNER_48);
-        memcpy(new_node->key, node->key, 16 * sizeof(u8));
-        memcpy(new_node->arr, node->arr, 16 * sizeof(unsigned long));
+        type = NODE_FLAGS_INNER_48;
         break;
     case NODE_FLAGS_INNER_48:
         // Bump to NODE_FLAGS_INNER_256
-        new_node = alloc_node(NODE_FLAGS_INNER_256);
-        for (int i = 0; i < node->key_len; i++) {
-            u8 key = node->key[i];
-            new_node->arr[key] = node->arr[i];
-        }
+        type = NODE_FLAGS_INNER_256;
         break;
     default:
-        die();
+        assert(false);
     }
+
+    new_node = alloc_node(type);
+    // Lookup the number of entries for the *old* node type
+    entries = node_size(node->flags);
+    memcpy(new_node->key, node->key, entries * sizeof(art_key_t));
+    memcpy(new_node->arr, node->arr, entries * sizeof(unsigned long));
 
     *_node = new_node;
     free_node(node, false);
     return new_node;
 }
 
+static inline struct radix_tree_node *make_leaf(struct stream *stream)
+{
+    struct radix_tree_node *leaf = alloc_node(NODE_FLAGS_LEAF);
+    leaf->key_len = stream_size(stream);
+    leaf->key = stream->data;
+    return leaf;
+}
+
+static void do_leaf(struct radix_tree_node **_node, struct stream *stream,
+                   struct radix_tree_node *leaf, int depth)
+{
+    struct radix_tree_node *node = *_node;
+
+    /*
+     * Optimistically check for a match to avoid allocating a new
+     * inner node uneccessarily.
+     */
+    unsigned int min_len = min(node->key_len, stream_size(stream));
+    unsigned int prefix_sz = ARRAY_SIZE(node->prefix);
+    art_key_t *key2 = load_key(node);
+    int i;
+    for (i = depth; i < min_len && stream_get(stream, i) == key2[i] && (i - depth) < prefix_sz; i++)
+        ;
+
+    if (i == stream_size(stream))
+        return; /* Match! */
+
+    struct radix_tree_node *new_node = alloc_node(NODE_FLAGS_INNER_4);
+
+    /* This can probably be a memcpy */
+    for (i = depth;
+         i < min_len && stream_get(stream, i) == key2[i] &&
+         (i - depth) < prefix_sz; i++) {
+            new_node->prefix[i - depth] = stream_get(stream, i);
+    }
+
+    // If we've exhausted the stream then we've 100% matched
+    // the leaf and don't need to do anything.
+    if (i == stream_size(stream)) {
+        free_node(new_node, true);
+        return;
+    }
+
+    new_node->prefix_len = i - depth;
+    depth = depth + new_node->prefix_len;
+    leaf = make_leaf(stream);
+    add_child(new_node, stream_get(stream, depth), leaf);
+
+    // Alternatively, if we've 100% matched the leaf node but
+    // the stream still has more data, we can merge the two.
+    if (i != node->key_len) {
+        add_child(new_node, key2[depth], node);
+    }
+    replace(_node, new_node);
+}
 /*
  * Insert a fully constructed leaf node into the tree rooted at _node.
  */
@@ -439,53 +451,15 @@ static void insert(struct radix_tree_node **_node, struct stream *stream,
 {
     struct radix_tree_node **next, *node = *_node;
     unsigned int match_len;
-    u8 *key = stream->data;
 
     if (node == NULL) {
+        leaf = make_leaf(stream);
         replace(_node, leaf);
         return;
     }
 
     if (is_leaf(node)) {
-        /*
-         * Optimistically check for a match to avoid allocating a new
-         * inner node uneccessarily.
-         */
-        unsigned int min_len = min(node->key_len, stream_size(stream));
-        u8 *key2 = load_key(node);
-        int i;
-        for (i = depth; i < min_len && key[i] == key2[i] && (i - depth) < sizeof(node->prefix); i++)
-            ;
-
-        if (i == stream_size(stream))
-            return; /* Match! */
-
-        struct radix_tree_node *new_node = alloc_node(NODE_FLAGS_INNER_4);
-
-        /* This can probably be a memcpy */
-        for (i = depth;
-             i < min_len && key[i] == key2[i] &&
-             (i - depth) < sizeof(new_node->prefix); i++) {
-            new_node->prefix[i - depth] = key[i];
-        }
-
-        // If we've exhausted the stream then we've 100% matched
-        // the leaf and don't need to do anything.
-        if (i == stream_size(stream)) {
-            free_node(new_node, true);
-            return;
-        }
-
-        new_node->prefix_len = i - depth;
-        depth = depth + new_node->prefix_len;
-        add_child(new_node, key[depth], leaf);
-
-        // Alternatively, if we've 100% matched the leaf node but
-        // the stream still has more data, we can merge the two.
-        if (i != node->key_len) {
-            add_child(new_node, key2[depth], node);
-        }
-        replace(_node, new_node);
+        do_leaf(_node, stream, leaf, depth);
         return;
     }
 
@@ -494,7 +468,8 @@ static void insert(struct radix_tree_node **_node, struct stream *stream,
         // Prefix mismatch
         struct radix_tree_node *new_node = alloc_node(NODE_FLAGS_INNER_4);
 
-        add_child(new_node, key[depth + match_len], leaf);
+        leaf = make_leaf(stream);
+        add_child(new_node, stream_get(stream, depth + match_len), leaf);
         add_child(new_node, node->prefix[match_len], node);
         new_node->prefix_len = match_len;
         assert(new_node->prefix_len <= sizeof(new_node->prefix));
@@ -513,7 +488,7 @@ static void insert(struct radix_tree_node **_node, struct stream *stream,
         return;
     }
 
-    next = find_child(node, key[depth]);
+    next = find_child(node, stream_get(stream, depth));
     if (next && *next) {
         stream_advance(stream, 1);
         insert(next, stream, leaf, depth + 1);
@@ -522,7 +497,8 @@ static void insert(struct radix_tree_node **_node, struct stream *stream,
         if (is_full(node)) {
             node = grow(_node, node);
         }
-        add_child(node, key[depth], leaf);
+        leaf = make_leaf(stream);
+        add_child(node, stream_get(stream, depth), leaf);
     }
     /* Now we're at the final node and we need to bump the count. */
     // node->count += 1;
@@ -534,33 +510,29 @@ static void art_tree_insert(struct callstack_tree *tree,
     struct art_priv *priv = tree->priv;
     struct stream *stream = &_stream;
     struct radix_tree_node *leaf;
-    unsigned int n, key_len;
 
     /*
      * We don't need to build a cursor (unlike the linux backend) because
      * we don't need to do any manipuation of the callchain nodes. We simply
      * feed the bytes into the ART.
      */
-    for (n = 0; n < MAX_STACK_ENTRIES; n++) {
+    for (int n = 0; n < MAX_STACK_ENTRIES; n++) {
         struct callstack_entry *entry = &stack[n];
         if (!entry->ip) {
-            stream->end = (u8 *)entry;
+            stream->end = (art_key_t *)entry;
             break;
         }
     }
 
-    stream_init(stream, (u8 *)stack);
+    stream_init(stream, (art_key_t *)stack);
 
     // Unroll the stream?!?!!?
-    leaf = alloc_node(NODE_FLAGS_LEAF);
-    key_len = n * sizeof(struct callstack_entry);
+    leaf = NULL;
     // leaf->key = ccalloc(1, key_len);
     // if (!leaf->key)
         // die();
 
     //memcpy(leaf->key, stream->data, key_len);
-    leaf->key = stream->data;
-    leaf->key_len = key_len;
 
     insert(&priv->root, stream, leaf, 0);
 }

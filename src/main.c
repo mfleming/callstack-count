@@ -198,7 +198,7 @@ int main(int argc, char *argv[])
     init_caches();
 
     // Main loop
-    for (int j = 0; j < 100; j++) {
+    for (int j = 0; j < 20; j++) {
         for (int i = 0; i < ARRAY_SIZE(records); i++) {
             r = &records[i];
 
