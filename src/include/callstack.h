@@ -2,6 +2,7 @@
 #define __CALLSTACK_H__
 
 #include <stdlib.h>
+#include <stdbool.h>
 
 struct callstack_entry {
 	unsigned long ip;
@@ -77,7 +78,10 @@ extern void __die(const char *func_name, int lineno);
 #define die() __die(__func__, __LINE__)
 
 extern void *ccalloc(size_t nmemb, size_t size);
+extern void cfree(void *ptr, bool leaf);
 extern unsigned long num_allocs;
+extern unsigned long num_frees;
+extern unsigned long leaf_frees;
 
 // TODO - de-dup cursor building code
 extern struct map_symbol *get_map(unsigned long map);

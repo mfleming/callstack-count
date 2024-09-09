@@ -108,7 +108,7 @@ static struct callstack_tree *art_tree_get(unsigned long id)
 
 static void art_tree_put(struct callstack_tree *tree)
 {
-    free(tree);
+    cfree(tree, false);
 }
 
 static void
@@ -220,24 +220,24 @@ static struct radix_tree_node *alloc_node(unsigned int flags)
     return node;
 }
 
-static void free_node(struct radix_tree_node *node)
+static void free_node(struct radix_tree_node *node, bool leaf)
 {
     switch (node->flags) {
     case NODE_FLAGS_LEAF:
-        free(node->key);
+        cfree(node->key, leaf);
         break;
     case NODE_FLAGS_INNER_4:
     case NODE_FLAGS_INNER_16:
     case NODE_FLAGS_INNER_48:
-        // free(node->key);
+        // cfree(node->key);
     case NODE_FLAGS_INNER_256:
-        // free(node->arr);
+        // cfree(node->arr);
         break;
     default:
         die();
     }
 
-    free(node);
+    cfree(node, leaf);
 }
 
 /*
@@ -325,8 +325,8 @@ static void replace(struct radix_tree_node **node, struct radix_tree_node *leaf)
     // TODO need to handle freeing memory?
     // struct radix_tree_node *n = *node;
     // if (n) {
-    //     free(n->key);
-    //     free(n);
+    //     cfree(n->key);
+    //     cfree(n);
     // }
 
     *node = leaf;
@@ -427,7 +427,7 @@ grow(struct radix_tree_node **_node, struct radix_tree_node *node)
     }
 
     *_node = new_node;
-    free_node(node);
+    free_node(node, false);
     return new_node;
 }
 
@@ -447,11 +447,22 @@ static void insert(struct radix_tree_node **_node, struct stream *stream,
     }
 
     if (is_leaf(node)) {
-        struct radix_tree_node *new_node = alloc_node(NODE_FLAGS_INNER_4);
+        /*
+         * Optimistically check for a match to avoid allocating a new
+         * inner node uneccessarily.
+         */
         unsigned int min_len = min(node->key_len, stream_size(stream));
+        u8 *key2 = load_key(node);
         int i;
+        for (i = depth; i < min_len && key[i] == key2[i] && (i - depth) < sizeof(node->prefix); i++)
+            ;
 
-        u8 *key2 = load_key(node); 
+        if (i == stream_size(stream))
+            return; /* Match! */
+
+        struct radix_tree_node *new_node = alloc_node(NODE_FLAGS_INNER_4);
+
+        /* This can probably be a memcpy */
         for (i = depth;
              i < min_len && key[i] == key2[i] &&
              (i - depth) < sizeof(new_node->prefix); i++) {
@@ -461,7 +472,7 @@ static void insert(struct radix_tree_node **_node, struct stream *stream,
         // If we've exhausted the stream then we've 100% matched
         // the leaf and don't need to do anything.
         if (i == stream_size(stream)) {
-            free_node(new_node);
+            free_node(new_node, true);
             return;
         }
 

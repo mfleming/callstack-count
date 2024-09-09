@@ -10,8 +10,10 @@ void *zalloc(size_t size)
 	return calloc(1, size);
 }
 
+extern unsigned long num_frees;
 void __zfree(void **ptr)
 {
+	num_frees++;
 	free(*ptr);
 	*ptr = NULL;
 }

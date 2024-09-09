@@ -237,6 +237,8 @@ int main(int argc, char *argv[])
     printf("Average 100%% matches: %0.2f%%\n", stats.avg_full_matches);
     printf("Number of maps: %lu\n", num_maps);
     printf("Number of allocations: %lu\n", num_allocs);
+    printf("Number of free:        %lu\n", num_frees);
+    printf("Number of LEAF frees:  %lu\n", leaf_frees);
 
     return 0;
 }
