@@ -236,6 +236,7 @@ int main(int argc, char *argv[])
     printf("Created %lu trees\n", stats.num_trees);
     printf("Average 100%% matches: %0.2f%%\n", stats.avg_full_matches);
     printf("Number of maps: %lu\n", num_maps);
+    printf("Number of allocations: %lu\n", num_allocs);
 
     return 0;
 }

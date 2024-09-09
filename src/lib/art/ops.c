@@ -180,13 +180,13 @@ static struct radix_tree_node *alloc_node(unsigned int flags)
     switch (flags) {
     case NODE_FLAGS_LEAF:
         obj_size = sizeof(struct radix_tree_node);
-        node = calloc(1, obj_size);
+        node = ccalloc(1, obj_size);
         break;
     case NODE_FLAGS_INNER_4:
         key_size = 4 * sizeof(u8);
         children_size = 4 * sizeof(unsigned long);
         obj_size = sizeof(struct radix_tree_node) + key_size + children_size;
-        node = calloc(1, obj_size);
+        node = ccalloc(1, obj_size);
         node->key = (u8 *)((char *)node + sizeof(struct radix_tree_node));
         node->arr = (unsigned long *)(node->key + key_size);
         break;
@@ -194,7 +194,7 @@ static struct radix_tree_node *alloc_node(unsigned int flags)
         key_size = 16 * sizeof(u8);
         children_size = 16 * sizeof(unsigned long);
         obj_size = sizeof(struct radix_tree_node) + key_size + children_size;
-        node = calloc(1, obj_size);
+        node = ccalloc(1, obj_size);
         node->key = (u8 *)((char *)node + sizeof(struct radix_tree_node));
         node->arr = (unsigned long *)(node->key + key_size);
         break;
@@ -202,14 +202,14 @@ static struct radix_tree_node *alloc_node(unsigned int flags)
         key_size = 48 * sizeof(u8);
         children_size = 48 * sizeof(unsigned long);
         obj_size = sizeof(struct radix_tree_node) + key_size + children_size;
-        node = calloc(1, obj_size);
+        node = ccalloc(1, obj_size);
         node->key = (u8 *)((char *)node + sizeof(struct radix_tree_node));
         node->arr = (unsigned long *)(node->key + key_size);
         break;
     case NODE_FLAGS_INNER_256:
         children_size = 256 * sizeof(unsigned long);
         obj_size = sizeof(struct radix_tree_node) + children_size;
-        node = calloc(1, obj_size);
+        node = ccalloc(1, obj_size);
         node->arr = (unsigned long *)((char *)node + sizeof(struct radix_tree_node));
         break;
     default:
@@ -567,7 +567,7 @@ static void art_tree_insert(struct callstack_tree *tree,
     // Unroll the stream?!?!!?
     leaf = alloc_node(NODE_FLAGS_LEAF);
     key_len = n * sizeof(struct callstack_entry);
-    // leaf->key = calloc(1, key_len);
+    // leaf->key = ccalloc(1, key_len);
     // if (!leaf->key)
         // die();
 
@@ -589,11 +589,11 @@ static struct callstack_tree *art_tree_new()
     struct callstack_tree *cs_tree;
     struct art_priv *priv;
 
-    cs_tree = calloc(1, sizeof(*cs_tree));
+    cs_tree = ccalloc(1, sizeof(*cs_tree));
     if (!cs_tree)
         die();
 
-    priv = calloc(1, sizeof(*priv));
+    priv = ccalloc(1, sizeof(*priv));
     if (!priv)
         die();
 

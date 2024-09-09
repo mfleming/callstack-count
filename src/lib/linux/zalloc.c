@@ -3,8 +3,10 @@
 #include <stdlib.h>
 #include <linux/zalloc.h>
 
+extern unsigned long num_allocs;
 void *zalloc(size_t size)
 {
+	num_allocs++;
 	return calloc(1, size);
 }
 
