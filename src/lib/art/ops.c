@@ -343,6 +343,11 @@ static unsigned int check_prefix(struct radix_tree_node *node,
     unsigned int min_len = min(node->prefix_len, (unsigned int)stream_size(stream) - depth);
     int i;
 
+    // Optimise for the common case where the prefix is the same
+    if (!memcmp(&node->prefix, &stream->data[depth], min_len))
+        return min_len;
+
+    // OK, they're different. Count the number of matching bytes.
     for (i = 0; i < min_len; i++) {
         if (node->prefix[i] != stream_get(stream, depth + i))
             break;
@@ -401,14 +406,23 @@ static void do_leaf(struct radix_tree_node **_node, struct stream *stream,
 {
     struct radix_tree_node *node = *_node;
 
+    assert(is_leaf(node));
+
     /*
-     * Optimistically check for a match to avoid allocating a new
-     * inner node uneccessarily.
+     * Optimistically check for a match to avoid allocating a new inner node
+     * uneccessarily. We want to avoid splitting the leaf node and inserting
+     * new_node in front of it if we don't have to.
+     *
+     * Which we can do if the stream is a prefix of the leaf node.
      */
     unsigned int min_len = min(node->key_len, stream_size(stream));
     unsigned int prefix_sz = ARRAY_SIZE(node->prefix);
     art_key_t *key2 = load_key(node);
     int i;
+    if (min_len == stream_size(stream) && !memcmp(&key2[depth], &stream->data[depth], min_len)) {
+        // Match!
+        return;
+    }
     for (i = depth; i < min_len && stream_get(stream, i) == key2[i] && (i - depth) < prefix_sz; i++)
         ;
 
