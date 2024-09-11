@@ -876,6 +876,7 @@ append_chain(struct callchain_node *root,
 	     struct callchain_cursor *cursor,
 	     u64 period);
 
+extern unsigned long __max_depth;
 static int
 append_chain_children(struct callchain_node *root,
 		      struct callchain_cursor *cursor,
@@ -885,6 +886,7 @@ append_chain_children(struct callchain_node *root,
 	struct callchain_cursor_node *node;
 	struct rb_node **p = &root->rb_root_in.rb_node;
 	struct rb_node *parent = NULL;
+	unsigned long depth = 0;
 
 	node = callchain_cursor_current(cursor);
 	if (!node)
@@ -908,6 +910,7 @@ append_chain_children(struct callchain_node *root,
 			p = &parent->rb_left;
 		else
 			p = &parent->rb_right;
+		depth++;
 	}
 	/* nothing in children, add to the current node */
 	rnode = add_child(root, cursor, period);
@@ -920,6 +923,8 @@ append_chain_children(struct callchain_node *root,
 inc_children_hit:
 	root->children_hit += period;
 	root->children_count++;
+	if (depth > __max_depth)
+		__max_depth = depth;
 	return 0;
 }
 

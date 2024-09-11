@@ -176,6 +176,7 @@ static struct callstack_tree *get_tree(unsigned long id) {
     return cursor->cs_tree;
 }
 
+unsigned long __max_depth = 0;
 int main(int argc, char *argv[])
 {
     struct stats stats = {0};
@@ -239,6 +240,7 @@ int main(int argc, char *argv[])
     printf("Number of allocations: %lu\n", num_allocs);
     printf("Number of free:        %lu\n", num_frees);
     printf("Number of LEAF frees:  %lu\n", leaf_frees);
+    printf("Max tree depth: %lu\n", __max_depth);
 
     return 0;
 }

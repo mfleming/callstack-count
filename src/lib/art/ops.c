@@ -538,6 +538,8 @@ static void do_leaf(struct radix_tree_node **_node, struct stream *stream,
     }
     replace(_node, new_node);
 }
+extern unsigned long __max_depth;
+
 /*
  * Insert a fully constructed leaf node into the tree rooted at _node.
  */
@@ -546,6 +548,7 @@ static void insert(struct radix_tree_node **_node, struct stream *stream,
 {
     struct radix_tree_node **next, *node = *_node;
     unsigned int match_len;
+    unsigned int __depth = 0;
 
     if (node == NULL) {
         leaf = make_leaf(stream);
@@ -590,6 +593,9 @@ static void insert(struct radix_tree_node **_node, struct stream *stream,
             _node = next;
             node = *next;
             depth += 1;
+            __depth++;
+            if (__depth > __max_depth)
+                __max_depth = __depth;
             // insert(next, stream, leaf, depth + 1);
         } else {
             // Add to inner node
