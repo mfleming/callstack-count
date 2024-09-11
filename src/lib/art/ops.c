@@ -143,6 +143,8 @@ art_tree_stats(struct callstack_tree *cs_tree, struct stats *stats)
 #define NODE_FLAGS_INNER_48  (1 << 3)
 #define NODE_FLAGS_INNER_256 (1 << 4)
 
+#define NODE_INITIAL_SIZE   NODE_FLAGS_INNER_4
+
 /*
  * A radix tree node.
  */
@@ -510,7 +512,7 @@ static void do_leaf(struct radix_tree_node **_node, struct stream *stream,
     if (i == stream_size(stream))
         return; /* Match! */
 
-    struct radix_tree_node *new_node = alloc_node(NODE_FLAGS_INNER_4);
+    struct radix_tree_node *new_node = alloc_node(NODE_INITIAL_SIZE);
 
     /* This can probably be a memcpy */
     for (i = depth;
@@ -565,7 +567,7 @@ static void insert(struct radix_tree_node **_node, struct stream *stream,
         match_len = check_prefix(node, stream, depth);
         if (match_len != node->prefix_len) {
             // Prefix mismatch
-            struct radix_tree_node *new_node = alloc_node(NODE_FLAGS_INNER_4);
+            struct radix_tree_node *new_node = alloc_node(NODE_INITIAL_SIZE);
 
             leaf = make_leaf(stream);
             add_child(new_node, stream_get(stream, depth + match_len), leaf);
