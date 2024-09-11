@@ -143,7 +143,7 @@ art_tree_stats(struct callstack_tree *cs_tree, struct stats *stats)
 #define NODE_FLAGS_INNER_48  (1 << 3)
 #define NODE_FLAGS_INNER_256 (1 << 4)
 
-#define NODE_INITIAL_SIZE   NODE_FLAGS_INNER_4
+#define NODE_INITIAL_SIZE   NODE_FLAGS_INNER_256
 
 /*
  * A radix tree node.
