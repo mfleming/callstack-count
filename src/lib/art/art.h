@@ -33,9 +33,6 @@ struct stream {
  * A radix tree node.
  */
 struct radix_tree_node {
-    /* How many IP-map pairs matched this path */
-    unsigned long count;
-
     unsigned long key_len;
     art_key_t *key;
 
@@ -66,6 +63,9 @@ struct radix_tree_node {
 
     /* See NODE_FLAGS_* */
     unsigned int flags;
+
+    /* How many IP-map pairs matched this path */
+    unsigned long count;
 
     unsigned int prefix_len;
     art_key_t prefix[128];
