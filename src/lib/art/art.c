@@ -192,7 +192,7 @@ static inline bool is_full(struct radix_tree_node *node)
 static struct radix_tree_node **
 find_child_16(struct radix_tree_node *node, art_key_t key)
 {
-#if 0
+#if 1
     for (int i = 0; i < node->key_len; i++) {
         if (node->key[i] == key)
             return (struct radix_tree_node **)&node->arr[i];
