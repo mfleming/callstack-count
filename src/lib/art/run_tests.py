@@ -68,35 +68,58 @@ class TestAdaptiveRadixTree(unittest.TestCase):
         self.assertEqual(self.max_height(root), 2)
 
     def test_many_inserts(self):
-        keys = ["ABCDE", "ACDE", "ADEFGHIJ"]
-        root = self.make_root()
+        keys = ("ABCDE", "ACDE", "ADEFGHIJ")
 
-        s = self.make_stream("ABCDE")
-        l = self.make_node()
-        self.module.insert(root, s, l, 0)
+        root = self.ffi.new("struct radix_tree_node **")
+
+        s1 = self.ffi.new("struct stream *")
+        k1 = self.ffi.new("char[]", str.encode(keys[0]))
+        s1[0].data = k1
+        s1[0].end = k1 + len(k1)
+
+        l1 = self.ffi.new("struct radix_tree_node *")
+        self.module.insert(root, s1, l1, 0)
         self.assertEqual(root[0][0].flags, NODE_FLAGS_LEAF)
-        print(root[0].key_len)
 
-        s2 = self.make_stream("ACDE")
-        print(s, s2)
-        s3 = self.ffi.new("struct stream *")
-        s4 = self.ffi.new("struct stream *")
-        k1 = self.ffi.new("char []",str.encode("foo"))
-        k2 = self.ffi.new("char []",str.encode("foobar"))
-        print(s3[0], s4[0])
-        print(len(k1), len(k2))
-        print(self.make_stream("foo")[0].data, self.make_stream("bar")[0].data)
-        l = self.make_node()
-        self.module.insert(root, s2, l, 0)
-        print(root[0].key_len)
+        s2 = self.ffi.new("struct stream *")
+        k2 = self.ffi.new("char[]", str.encode(keys[1]))
+        s2[0].data = k2
+        s2[0].end = k2 + len(k2)
+
+        l2 = self.ffi.new("struct radix_tree_node *")
+        self.module.insert(root, s2, l2, 0)
+
         self.assertEqual(root[0][0].flags, NODE_FLAGS_INNER_4)
-
-        self.assertEqual(self.max_height(root[0]), 2)
-
         r = root[0]
+        self.assertEqual(self.max_height(r), 2)
+        self.assertEqual(r.prefix_len, 1)
+        self.assertEqual(r.prefix[0], ord("A"))
+        # 2 children
+        self.assertEqual(r.key_len, 2)
+        self.assertEqual(r.key[0], ord("C"))
+        self.assertEqual(r.key[1], ord("B"))
+
+        s3 = self.ffi.new("struct stream *")
+        k3 = self.ffi.new("char []", str.encode(keys[2]))
+        s3[0].data = k3
+        s3[0].end = k3 + len(k3)
+
+        l3 = self.ffi.new("struct radix_tree_node *")
+        self.module.insert(root, s3, l3, 0)
+
         self.assertEqual(r.flags, NODE_FLAGS_INNER_4)
-        self.assertEqual(r.key[2], "A")
-        self.assertEqual(r.key_len, 1)
+        # Height shouldn't change from prev
+        self.assertEqual(self.max_height(r), 2)
+        self.assertEqual(r.prefix_len, 1)
+        self.assertEqual(r.prefix[0], ord("A"))
+        # 3 children
+        self.assertEqual(r.key_len, 3)
+        self.assertEqual(r.key[0], ord("B"))
+        self.assertEqual(r.key[1], ord("C"))
+        self.assertEqual(r.key[2], ord("D"))
+
+
+ 
 
 if __name__ == '__main__':
     unittest.main()

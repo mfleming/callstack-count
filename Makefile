@@ -2,11 +2,11 @@ SRCDIR:=src
 HDRDIR:=src/include
 ARCHDIR:=src/arch/x86/include/
 UAPIDIR:=src/include/uapi
-CFLAGS:=-Wall -Werror -g2 -ggdb -O2
+CFLAGS:=-Wall -Werror -g2 -ggdb -O0
 
 all: main
 
-main: $(SRCDIR)/*.c $(SRCDIR)/lib/linux/*.c $(SRCDIR)/lib/art/*.c
+main: $(SRCDIR)/*.c $(SRCDIR)/lib/linux/*.c $(SRCDIR)/lib/art/ops.c
 	$(CC) -lm $(CFLAGS) -I $(HDRDIR) -I $(ARCHDIR) -I $(UAPIDIR) $^ -o $@
 
 clean:

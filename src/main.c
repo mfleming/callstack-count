@@ -25,7 +25,7 @@ struct record simple_records[] = {
         }}
 };
 
-void insert(struct callstack_tree *tree, struct callstack_entry *stack)
+void _insert(struct callstack_tree *tree, struct callstack_entry *stack)
 {
     struct callstack_entry *entry;
     for (int i = 0; i < MAX_STACK_ENTRIES; i++) {
@@ -44,7 +44,7 @@ struct callstack_tree *callstack_get(unsigned long id)
         die();
     }
 
-    t->insert = insert;
+    t->insert = _insert;
 
     return t;
 }

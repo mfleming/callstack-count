@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
+#include <xmmintrin.h>
 
 typedef unsigned char art_key_t;
 
@@ -26,12 +27,14 @@ struct stream {
 
 #define NODE_INITIAL_SIZE   NODE_FLAGS_INNER_4
 
+#define EMPTY 0xff
+
 /*
  * A radix tree node.
  */
 struct radix_tree_node {
     /* How many IP-map pairs matched this path */
-    // unsigned long count;
+    unsigned long count;
 
     unsigned long key_len;
     art_key_t *key;
@@ -68,9 +71,17 @@ struct radix_tree_node {
     art_key_t prefix[128];
 };
 
+#ifndef die
 #define die() exit(1)
+#endif
+
+#ifndef min
 #define min(a,b) ((a) < (b) ? (a) : (b))
+#endif
+
+#ifndef ARRAY_SIZE
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof(arr[0]))
+#endif
 
 #define cfree(ptr, flag) free(ptr)
 #define ccalloc(num, size) calloc(num, size)
