@@ -193,25 +193,21 @@ static struct radix_tree_node **
 find_child_16(struct radix_tree_node *node, art_key_t key)
 {
 #if 0
-        for (int i = 0; i < node->key_len; i++) {
-            if (node->key[i] == key)
-                return (struct radix_tree_node **)&node->arr[i];
-        }
+    for (int i = 0; i < node->key_len; i++) {
+        if (node->key[i] == key)
+            return (struct radix_tree_node **)&node->arr[i];
+    }
 #else
-        __m128i __cmp = _mm_set1_epi8(key);
-        __m128i __input = _mm_set_epi8(
-            node->key[0], node->key[1], node->key[2], node->key[3],
-            node->key[4], node->key[5], node->key[6], node->key[7],
-            node->key[8], node->key[9], node->key[10], node->key[11],
-            node->key[12], node->key[13], node->key[14], node->key[15]
-        );
-        __m128i __eq = _mm_cmpeq_epi8(__input, __cmp);
-        unsigned int mask = _mm_movemask_epi8(__eq);
-        unsigned int zeros = __builtin_clz(mask) - 16;
+    __m128i node_key = _mm_loadu_si128((const __m128i *)node->key);
+    __m128i __cmp = _mm_set1_epi8(key);
+    // __m128i __input = _mm_set_epi8(
+    __m128i __eq = _mm_cmpeq_epi8(node_key, __cmp);
+    unsigned int mask = (1 << node->key_len) - 1;
+    unsigned int bitfield = _mm_movemask_epi8(__eq) & mask;
 
-        // mask is 32-bits but we're only interested in the lower 16-bits
-        if (mask && zeros < node->key_len)
-            return (struct radix_tree_node **)&node->arr[zeros];
+    // mask is 32-bits but we're only interested in the lower 16-bits
+    if (bitfield)
+        return (struct radix_tree_node **)&node->arr[__builtin_ctz(bitfield)];
 #endif
 
     return NULL;
