@@ -16,6 +16,8 @@ static uint32_t retrieve_result_candidate(struct node *node, hot_key_t *key) {
 		break;
 	case MULTI_MASK_8_PKEYS_8_BIT:
 		break;
+	case MULTI_MASK_8_PKEYS_16_BIT:
+		break;
 	default:
 		panic();
 	}
