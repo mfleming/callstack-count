@@ -73,6 +73,7 @@ struct callstack_ops {
 extern struct callstack_ops *cs_ops;
 extern struct callstack_ops linux_ops;
 extern struct callstack_ops art_ops;
+extern struct callstack_ops hash_ops;
 
 extern void __die(const char *func_name, int lineno);
 #define die() __die(__func__, __LINE__)

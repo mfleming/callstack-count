@@ -191,6 +191,8 @@ int main(int argc, char *argv[])
         cs_ops = &linux_ops;
     } else if (!strcmp(argv[1], "art")) {
         cs_ops = &art_ops;
+    } else if (!strcmp(argv[1], "hash")) {
+        cs_ops = &hash_ops;
     } else {
         fprintf(stderr, "Invalid argument: %s\n", argv[1]);
         exit(EXIT_FAILURE);

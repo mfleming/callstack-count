@@ -6,7 +6,7 @@ CFLAGS:=-Wall -Werror -g2 -ggdb -O2
 
 all: main
 
-main: $(SRCDIR)/*.c $(SRCDIR)/lib/linux/*.c $(SRCDIR)/lib/art/ops.c $(SRCDIR)/lib/hot/callstack.c
+main: $(SRCDIR)/*.c $(SRCDIR)/lib/linux/*.c $(SRCDIR)/lib/art/ops.c $(SRCDIR)/lib/hashtable/callstack.c
 	$(CC) -lm $(CFLAGS) -I $(HDRDIR) -I $(ARCHDIR) -I $(UAPIDIR) $^ -o $@
 
 clean:
