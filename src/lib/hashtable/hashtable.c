@@ -50,6 +50,7 @@ struct hashtable *alloc_table(void)
 	return h;
 }
 
+extern unsigned long num_unique_entries;
 void hash_insert(struct hashtable *table, struct stream *stream)
 {
 	unsigned long h = jenkins_hash(stream);
@@ -59,7 +60,12 @@ void hash_insert(struct hashtable *table, struct stream *stream)
 		b = alloc(sizeof(*b));
 		b->key = stream;
 		table->map[h] = b;
+		table->unique++;
+		// assert (!(num_unique_entries > (1<<16)));
+		if (table->unique > num_unique_entries)
+			num_unique_entries = table->unique;
 	} else {
+		table->hits++;
 		size_t len = stream->end - stream->begin;
 		assert(!memcmp(b->key->begin, stream->begin, len));
 	}

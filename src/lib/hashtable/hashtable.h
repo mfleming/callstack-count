@@ -17,6 +17,8 @@ struct bucket {
 
 struct hashtable {
 	struct bucket **map;
+	unsigned long unique;
+	unsigned long hits;
 };
 
 #endif /* __HASHTABLE_H__ */

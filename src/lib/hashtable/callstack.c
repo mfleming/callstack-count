@@ -54,8 +54,13 @@ static void hash_put(struct callstack_tree *tree)
     cfree(tree, false);
 }
 
+unsigned long num_unique_entries = 0;
 static void hash_stats(struct callstack_tree *cs_tree, struct stats *stats)
 {
+    struct hash_priv *priv = cs_tree->priv;
+    printf("Unique entries in hashtable: %lu\n", priv->table->unique);
+    printf("Table hits: %lu\n", priv->table->hits);
+    // printf("Max unique entries: %lu\n", num_unique_entries);
 }
 
 struct callstack_ops hash_ops = {
