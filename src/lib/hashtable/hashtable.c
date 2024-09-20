@@ -3,6 +3,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include "hashtable.h"
+#include "callstack.h"
+
+#include "jenkins.c"
 
 /*
  * Implementation of a rolling hash function.
@@ -24,9 +27,15 @@ static inline unsigned long basic_hash(struct stream *stream)
 	return h & ((1<<16)-1);
 }
 
+static inline unsigned long jenkins_hash(struct stream *stream)
+{
+	unsigned long length = stream->end - stream->begin;
+	return jhash((ub1 *)stream->begin, length, 0);
+}
+
 static void *alloc(size_t size)
 {
-	void *ptr = calloc(1, size);
+	void *ptr = ccalloc(1, size);
 	if (!ptr) {
 		fprintf(stderr, "Failed allocation");
 		exit(EXIT_FAILURE);
