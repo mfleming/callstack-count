@@ -1,8 +1,8 @@
-CFLAGS=-g2 -O0
+CFLAGS=-g2 -O0 -I../../include
 
 all: tests
 
 .PHONY: tests
 tests:
-	$(CC) $(CFLAGS) test.c -o test
+	$(CC) $(CFLAGS) ../../ccalloc.c test.c -o test
 	./test
