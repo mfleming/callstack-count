@@ -30,7 +30,7 @@ static inline unsigned long basic_hash(struct stream *stream)
 static inline unsigned long jenkins_hash(struct stream *stream)
 {
 	unsigned long length = stream->end - stream->begin;
-	return jhash((ub1 *)stream->begin, length, 0);
+	return jhash((ub1 *)stream->begin, length, 0) & ((1<<16)-1);
 }
 
 static void *alloc(size_t size)
@@ -52,7 +52,7 @@ struct hashtable *alloc_table(void)
 
 void hash_insert(struct hashtable *table, struct stream *stream)
 {
-	unsigned long h = basic_hash(stream); 
+	unsigned long h = jenkins_hash(stream);
 	struct bucket *b = table->map[h];
 
 	if (!b) {
@@ -72,6 +72,6 @@ void hash_insert(struct hashtable *table, struct stream *stream)
  */
 int hash_lookup(struct hashtable *table, struct stream *stream)
 {
-	struct bucket *b = table->map[basic_hash(stream)];
+	struct bucket *b = table->map[jenkins_hash(stream)];
 	return b->count;
 }
