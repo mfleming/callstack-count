@@ -11,12 +11,16 @@ struct stream {
 };
 
 struct bucket {
-	unsigned int count;
 	struct stream *key;
+	unsigned long count;
 };
 
+#define NUM_INTERNAL 3
+
 struct hashtable {
+	struct bucket _bucket[NUM_INTERNAL];
 	struct bucket **map;
+	unsigned char num_internal;
 	unsigned long unique;
 	unsigned long hits;
 };

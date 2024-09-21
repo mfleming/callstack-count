@@ -51,7 +51,14 @@ struct hashtable *alloc_table(void)
 }
 
 extern unsigned long num_unique_entries;
-void hash_insert(struct hashtable *table, struct stream *stream)
+
+static inline void update_unique(unsigned long entries)
+{
+	if (entries > num_unique_entries)
+		num_unique_entries = entries;
+}
+
+void __hash_insert(struct hashtable *table, struct stream *stream)
 {
 	unsigned long h = jenkins_hash(stream);
 	struct bucket *b = table->map[h];
@@ -62,8 +69,7 @@ void hash_insert(struct hashtable *table, struct stream *stream)
 		table->map[h] = b;
 		table->unique++;
 		// assert (!(num_unique_entries > (1<<16)));
-		if (table->unique > num_unique_entries)
-			num_unique_entries = table->unique;
+		update_unique(table->unique);
 	} else {
 		table->hits++;
 		size_t len = stream->end - stream->begin;
@@ -72,12 +78,93 @@ void hash_insert(struct hashtable *table, struct stream *stream)
 	b->count++;
 }
 
+void hash_insert(struct hashtable *table, struct stream *stream)
+{
+	size_t len;
+	int i;
+
+	if (table->num_internal <= NUM_INTERNAL) {
+		// Lookup in the internal hashtable we just fetched the cacheline for.
+		len = stream->end - stream->begin;
+		for (i = 0; i < table->num_internal; i++) {
+			struct bucket *b = &table->_bucket[i];
+			size_t b_len = b->key->end - b->key->begin;
+
+			if (!b->key) {
+				// No match so far and we found an empty slot. Insert
+				b->key = stream;
+				table->num_internal++;
+				table->unique++;
+				update_unique(table->unique);
+				return;
+			}
+
+			if (len != b_len)
+				continue;
+
+			if (!memcmp(b->key->begin, stream->begin, len)) {
+				// Match
+				b->count++;
+				table->hits++;
+				return;
+			}
+		}
+
+		if (table->num_internal < NUM_INTERNAL) {
+			struct bucket *b = &table->_bucket[i];
+			b->key = stream;
+			table->num_internal++;
+			b->count++;
+			table->unique++;
+			update_unique(table->unique);
+			return;
+		}
+
+		// If we get here then we failed to match stream to the internal
+		// buckets. Expand to the indirect buckets.
+		table->num_internal = NUM_INTERNAL + 1;
+		assert(i == NUM_INTERNAL);
+
+		for (int i = 0; i < NUM_INTERNAL; i++) {
+			struct bucket *b = &table->_bucket[i];
+			__hash_insert(table, b->key);
+		}
+
+		/* FALLTHROUGH */
+	}
+	/* Slow path*/
+	__hash_insert(table, stream);
+}
+
 /*
  * Search for the given key in the hash table and return the associated
  * value. In our case, that's a count.
  */
 int hash_lookup(struct hashtable *table, struct stream *stream)
 {
-	struct bucket *b = table->map[jenkins_hash(stream)];
-	return b->count;
+	struct bucket *b;
+	size_t len = stream->end - stream->begin;
+
+	if (table->num_internal > NUM_INTERNAL) {
+		// Slow path
+		b = table->map[jenkins_hash(stream)];
+		return b->count;
+	}
+
+	for (int i = 0; i < table->num_internal; i++) {
+		size_t b_len;
+
+		b = &table->_bucket[i];
+		if (!b->key)
+			return -1;
+
+		b_len = b->key->end - b->key->begin;
+		if (len != b_len)
+			continue;
+
+		if (!memcmp(b->key->begin, stream->begin, len))
+			return b->count;
+	}
+
+	return -1;
 }
